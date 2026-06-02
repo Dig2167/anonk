@@ -184,23 +184,6 @@ function buildInviteText(userId) {
   ].join('\n');
 }
 
-function buildInviteKeyboard(userId) {
-  if (!TELEGRAM_BOT_USERNAME) {
-    return undefined;
-  }
-
-  return {
-    inline_keyboard: [
-      [
-        {
-          text: 'Скопировать ссылку',
-          callback_data: `showlink:${userId}`,
-        },
-      ],
-    ],
-  };
-}
-
 function buildRecipientText(record) {
   const textLine = record.text ? `«${record.text}»` : '';
 
@@ -525,14 +508,12 @@ async function handleAdminCommand(message) {
 
 async function handleProfileCommand(message) {
   const text = buildInviteText(message.from.id);
-  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
-      reply_markup,
     },
     'Failed to send profile link'
   );
@@ -558,14 +539,12 @@ async function handleStartCommand(message) {
   }
 
   const text = buildInviteText(message.from.id);
-  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
-      reply_markup,
     },
     'Failed to send default start message'
   );
@@ -619,16 +598,14 @@ async function handleMessage(message) {
   }
 
   const session = await findSessionByChatId(message.from.id);
-  if (!session?.target_user_id || Number(session.target_user_id) === message.from.id) {
+  if (!session?.target_user_id) {
     const text = buildInviteText(message.from.id);
-    const reply_markup = buildInviteKeyboard(message.from.id);
 
     await safeTelegramRequest(
       'sendMessage',
       {
         chat_id: message.chat.id,
         text,
-        reply_markup,
       },
       'Failed to send invite'
     );
@@ -707,31 +684,6 @@ async function handleCallback(callbackQuery) {
     return;
   }
 
-  if (callbackQuery.data.startsWith('showlink:')) {
-    const userId = callbackQuery.data.replace('showlink:', '');
-    const link = TELEGRAM_BOT_USERNAME
-      ? `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`
-      : '';
-
-    await safeTelegramRequest(
-      'answerCallbackQuery',
-      {
-        callback_query_id: callbackQuery.id,
-        text: 'Ссылка скопирована',
-      },
-      'Failed to answer callback query'
-    );
-
-    await safeTelegramRequest(
-      'sendMessage',
-      {
-        chat_id: callbackQuery.from.id,
-        text: link,
-        reply_markup: buildInviteKeyboard(Number(userId)),
-      },
-      'Failed to send link via callback'
-    );
-  }
 }
 
 module.exports = async (req, res) => {
