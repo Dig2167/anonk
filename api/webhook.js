@@ -184,6 +184,23 @@ function buildInviteText(userId) {
   ].join('\n');
 }
 
+function buildInviteKeyboard(userId) {
+  if (!TELEGRAM_BOT_USERNAME) {
+    return undefined;
+  }
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: 'Показать ссылку',
+          callback_data: `showlink:${userId}`,
+        },
+      ],
+    ],
+  };
+}
+
 function buildRecipientText(record) {
   const textLine = record.text ? record.text : `[${record.kind}]`;
 
@@ -463,12 +480,14 @@ async function handleAdminCommand(message) {
 
 async function handleProfileCommand(message) {
   const text = buildInviteText(message.from.id);
+  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
+      reply_markup,
     },
     'Failed to send profile link'
   );
@@ -494,12 +513,14 @@ async function handleStartCommand(message) {
   }
 
   const text = buildInviteText(message.from.id);
+  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
+      reply_markup,
     },
     'Failed to send default start message'
   );
@@ -557,12 +578,14 @@ async function handleMessage(message) {
   const session = await findSessionByChatId(message.from.id);
   if (!session?.target_user_id) {
     const text = buildInviteText(message.from.id);
+    const reply_markup = buildInviteKeyboard(message.from.id);
 
     await safeTelegramRequest(
       'sendMessage',
       {
         chat_id: message.chat.id,
         text,
+        reply_markup,
       },
       'Failed to send invite'
     );
@@ -592,7 +615,9 @@ async function handleMessage(message) {
 }
 
 async function handleCallback(callbackQuery) {
-  if (callbackQuery.data && callbackQuery.data.startsWith('reply:')) {
+  if (!callbackQuery.data) return;
+
+  if (callbackQuery.data.startsWith('reply:')) {
     await safeTelegramRequest(
       'answerCallbackQuery',
       {
@@ -600,6 +625,32 @@ async function handleCallback(callbackQuery) {
         text: 'Ответь на сообщение бота текстом, чтобы отправить его пользователю.',
       },
       'Failed to answer callback query'
+    );
+    return;
+  }
+
+  if (callbackQuery.data.startsWith('showlink:')) {
+    const userId = callbackQuery.data.replace('showlink:', '');
+    const text = buildInviteText(Number(userId));
+    const reply_markup = buildInviteKeyboard(Number(userId));
+
+    await safeTelegramRequest(
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQuery.id,
+        text: 'Ссылка показана ниже',
+      },
+      'Failed to answer callback query'
+    );
+
+    await safeTelegramRequest(
+      'sendMessage',
+      {
+        chat_id: callbackQuery.from.id,
+        text,
+        reply_markup,
+      },
+      'Failed to send link via callback'
     );
   }
 }
