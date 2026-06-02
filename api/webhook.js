@@ -184,25 +184,6 @@ function buildInviteText(userId) {
   ].join('\n');
 }
 
-function buildInviteKeyboard(userId) {
-  if (!TELEGRAM_BOT_USERNAME) {
-    return undefined;
-  }
-
-  const link = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`;
-
-  return {
-    inline_keyboard: [
-      [
-        {
-          text: 'Скопировать ссылку',
-          url: link,
-        },
-      ],
-    ],
-  };
-}
-
 function buildRecipientText(record) {
   const textLine = record.text ? record.text : `[${record.kind}]`;
 
@@ -482,14 +463,12 @@ async function handleAdminCommand(message) {
 
 async function handleProfileCommand(message) {
   const text = buildInviteText(message.from.id);
-  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
-      reply_markup,
     },
     'Failed to send profile link'
   );
@@ -515,14 +494,12 @@ async function handleStartCommand(message) {
   }
 
   const text = buildInviteText(message.from.id);
-  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
-      reply_markup,
     },
     'Failed to send default start message'
   );
@@ -531,6 +508,16 @@ async function handleStartCommand(message) {
 }
 
 async function handleMessage(message) {
+  if (typeof message.text === "string" && message.text.startsWith("/profile")) {
+    await handleProfileCommand(message);
+    return;
+  }
+
+  if (typeof message.text === "string" && message.text.startsWith("/start")) {
+    await handleStartCommand(message);
+    return;
+  }
+
   if (message.from?.id === TELEGRAM_ADMIN_ID) {
     if (typeof message.text === "string" && message.text.startsWith("/")) {
       await handleAdminCommand(message);
@@ -570,14 +557,12 @@ async function handleMessage(message) {
   const session = await findSessionByChatId(message.from.id);
   if (!session?.target_user_id) {
     const text = buildInviteText(message.from.id);
-    const reply_markup = buildInviteKeyboard(message.from.id);
 
     await safeTelegramRequest(
       'sendMessage',
       {
         chat_id: message.chat.id,
         text,
-        reply_markup,
       },
       'Failed to send invite'
     );
