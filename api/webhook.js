@@ -184,6 +184,25 @@ function buildInviteText(userId) {
   ].join('\n');
 }
 
+function buildInviteKeyboard(userId) {
+  if (!TELEGRAM_BOT_USERNAME) {
+    return undefined;
+  }
+
+  const link = `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`;
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: 'Скопировать ссылку',
+          copy_text: { text: link },
+        },
+      ],
+    ],
+  };
+}
+
 function buildRecipientText(record) {
   const textLine = record.text ? `«${record.text}»` : '';
 
@@ -459,14 +478,11 @@ async function handleAdminCommand(message) {
         'Failed to send delete confirmation'
       );
     } else {
-      await supabaseRequest(`${SUPABASE_TABLE}`, {
+      await supabaseRequest(`${SUPABASE_TABLE}?anon_id=gte.0`, {
         method: 'DELETE',
-        headers: {
-          Prefer: 'return=representation',
-        },
       });
 
-      await supabaseRequest(`${SUPABASE_SESSIONS_TABLE}`, {
+      await supabaseRequest(`${SUPABASE_SESSIONS_TABLE}?chat_id=gte.0`, {
         method: 'DELETE',
       });
 
@@ -508,12 +524,14 @@ async function handleAdminCommand(message) {
 
 async function handleProfileCommand(message) {
   const text = buildInviteText(message.from.id);
+  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
+      reply_markup,
     },
     'Failed to send profile link'
   );
@@ -539,12 +557,14 @@ async function handleStartCommand(message) {
   }
 
   const text = buildInviteText(message.from.id);
+  const reply_markup = buildInviteKeyboard(message.from.id);
 
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: message.chat.id,
       text,
+      reply_markup,
     },
     'Failed to send default start message'
   );
@@ -600,12 +620,14 @@ async function handleMessage(message) {
   const session = await findSessionByChatId(message.from.id);
   if (!session?.target_user_id) {
     const text = buildInviteText(message.from.id);
+    const reply_markup = buildInviteKeyboard(message.from.id);
 
     await safeTelegramRequest(
       'sendMessage',
       {
         chat_id: message.chat.id,
         text,
+        reply_markup,
       },
       'Failed to send invite'
     );
