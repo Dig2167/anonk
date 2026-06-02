@@ -414,6 +414,16 @@ async function replyToUser(target, text) {
       reply_parameters: {
         message_id: target.telegram_message_id,
       },
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: 'Написать ещё ✍️',
+              callback_data: 'write_more',
+            },
+          ],
+        ],
+      },
     },
     'Failed to reply to user'
   );
@@ -619,16 +629,6 @@ async function handleMessage(message) {
         {
           chat_id: TELEGRAM_ADMIN_ID,
           text: `Ответ отправлен ${formatAnonId(target.anon_id)}.`,
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: 'Написать ещё ✍️',
-                  callback_data: `replyto:${target.anon_id}:${target.user_id}`,
-                },
-              ],
-            ],
-          },
         },
         'Failed to send reply confirmation'
       );
@@ -712,39 +712,14 @@ async function handleCallback(callbackQuery) {
     return;
   }
 
-  if (callbackQuery.data.startsWith('replyto:')) {
-    const parts = callbackQuery.data.split(':');
-    const anonId = Number(parts[1] || 0);
-    const userId = Number(parts[2] || 0);
-
-    if (!anonId || !userId) return;
-
+  if (callbackQuery.data === 'write_more') {
     await safeTelegramRequest(
       'answerCallbackQuery',
       {
         callback_query_id: callbackQuery.id,
-        text: 'Напиши сообщение и отправь его в чат',
+        text: 'Просто напиши сообщение',
       },
-      'Failed to answer replyto callback'
-    );
-
-    await safeTelegramRequest(
-      'sendMessage',
-      {
-        chat_id: callbackQuery.from.id,
-        text: `✍️ Напиши сообщение для ${formatAnonId(anonId)}`,
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: 'Написать ещё ✍️',
-                callback_data: `replyto:${anonId}:${userId}`,
-              },
-            ],
-          ],
-        },
-      },
-      'Failed to send replyto prompt'
+      'Failed to answer write_more callback'
     );
   }
 }
