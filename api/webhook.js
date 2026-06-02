@@ -406,11 +406,22 @@ async function sendToRecipient(record) {
 }
 
 async function replyToUser(target, text) {
+  const lines = [
+    `↩️ Ответ от получателя анонимки ${formatAnonId(target.anon_id)}:`,
+    '',
+  ];
+
+  if (target.text) {
+    lines.push(`«${target.text}»`, '');
+  }
+
+  lines.push('---', '', text);
+
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: target.user_id,
-      text,
+      text: lines.join('\n'),
     },
     'Failed to reply to user'
   );
@@ -615,7 +626,7 @@ async function handleMessage(message) {
         'sendMessage',
         {
           chat_id: TELEGRAM_ADMIN_ID,
-          text: `Ответ отправлен пользователю ${target.name} (${formatAnonId(target.anon_id)}).`,
+          text: `Ответ отправлен ${formatAnonId(target.anon_id)}.`,
         },
         'Failed to send reply confirmation'
       );
