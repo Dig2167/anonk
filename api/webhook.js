@@ -589,7 +589,14 @@ async function handleMessage(message) {
     }
 
     if (message.reply_to_message && message.text) {
-      const target = await findMessageByAdminMessageId(message.reply_to_message.message_id);
+      let target = await findMessageByAdminMessageId(message.reply_to_message.message_id);
+
+      if (!target) {
+        const anonMatch = (message.reply_to_message.text || '').match(/#(\d+)/);
+        if (anonMatch) {
+          target = await findMessageByAnonId(Number(anonMatch[1]));
+        }
+      }
 
       if (!target) {
         await safeTelegramRequest(
@@ -662,7 +669,9 @@ async function handleMessage(message) {
   );
 
   if (sent?.message_id) {
-    await updateAdminMessageId(record.anon_id, sent.message_id);
+    try {
+      await updateAdminMessageId(record.anon_id, sent.message_id);
+    } catch (_) {}
   }
 
   await safeTelegramRequest(
