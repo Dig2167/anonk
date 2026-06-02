@@ -406,22 +406,14 @@ async function sendToRecipient(record) {
 }
 
 async function replyToUser(target, text) {
-  const lines = [
-    `↩️ Ответ от получателя анонимки ${formatAnonId(target.anon_id)}:`,
-    '',
-  ];
-
-  if (target.text) {
-    lines.push(`«${target.text}»`, '');
-  }
-
-  lines.push('---', '', text);
-
   await safeTelegramRequest(
     'sendMessage',
     {
       chat_id: target.user_id,
-      text: lines.join('\n'),
+      text,
+      reply_parameters: {
+        message_id: target.telegram_message_id,
+      },
     },
     'Failed to reply to user'
   );
