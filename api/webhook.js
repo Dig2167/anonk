@@ -193,7 +193,7 @@ function buildInviteKeyboard(userId) {
     inline_keyboard: [
       [
         {
-          text: 'Показать ссылку',
+          text: 'Скопировать ссылку',
           callback_data: `showlink:${userId}`,
         },
       ],
@@ -572,7 +572,7 @@ async function handleMessage(message) {
       return;
     }
 
-    return;
+    // fall through to session handling
   }
 
   const session = await findSessionByChatId(message.from.id);
@@ -631,14 +631,15 @@ async function handleCallback(callbackQuery) {
 
   if (callbackQuery.data.startsWith('showlink:')) {
     const userId = callbackQuery.data.replace('showlink:', '');
-    const text = buildInviteText(Number(userId));
-    const reply_markup = buildInviteKeyboard(Number(userId));
+    const link = TELEGRAM_BOT_USERNAME
+      ? `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`
+      : '';
 
     await safeTelegramRequest(
       'answerCallbackQuery',
       {
         callback_query_id: callbackQuery.id,
-        text: 'Ссылка показана ниже',
+        text: 'Ссылка скопирована',
       },
       'Failed to answer callback query'
     );
@@ -647,8 +648,8 @@ async function handleCallback(callbackQuery) {
       'sendMessage',
       {
         chat_id: callbackQuery.from.id,
-        text,
-        reply_markup,
+        text: link,
+        reply_markup: buildInviteKeyboard(Number(userId)),
       },
       'Failed to send link via callback'
     );
