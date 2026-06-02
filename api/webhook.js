@@ -531,16 +531,6 @@ async function handleStartCommand(message) {
 }
 
 async function handleMessage(message) {
-  if (typeof message.text === "string" && message.text.startsWith("/profile")) {
-    await handleProfileCommand(message);
-    return;
-  }
-
-  if (typeof message.text === "string" && message.text.startsWith("/start")) {
-    await handleStartCommand(message);
-    return;
-  }
-
   if (message.from?.id === TELEGRAM_ADMIN_ID) {
     if (typeof message.text === "string" && message.text.startsWith("/")) {
       await handleAdminCommand(message);
@@ -573,6 +563,8 @@ async function handleMessage(message) {
       );
       return;
     }
+
+    return;
   }
 
   const session = await findSessionByChatId(message.from.id);
@@ -587,33 +579,22 @@ async function handleMessage(message) {
         text,
         reply_markup,
       },
-      'Failed to send no-session notice'
+      'Failed to send invite'
     );
     return;
   }
 
-  const targetUserId = Number(session.target_user_id);
-  const record = await insertMessage(message, targetUserId);
-
-  if (targetUserId !== TELEGRAM_ADMIN_ID) {
-    await sendToAdmin(record);
-  }
-
-  let delivery = await sendToRecipient(record);
-
+  const record = await insertMessage(message, Number(session.target_user_id));
   await trimOldMessages();
 
-  if (!delivery.ok && !delivery.skipped) {
-    await safeTelegramRequest(
-      'sendMessage',
-      {
-        chat_id: message.chat.id,
-        text: 'Сообщение принято, но не получилось доставить его получателю.',
-      },
-      'Failed to send user delivery failure notice'
-    );
-    return;
-  }
+  await safeTelegramRequest(
+    'sendMessage',
+    {
+      chat_id: Number(session.target_user_id),
+      text: buildRecipientText(record),
+    },
+    'Failed to forward to admin'
+  );
 
   await safeTelegramRequest(
     'sendMessage',
