@@ -204,15 +204,14 @@ function buildInviteKeyboard(userId) {
 }
 
 function buildRecipientText(record) {
-  const textLine = record.text ? `«${record.text}»` : '';
+  const lines = ['💬 У тебя новое сообщение!'];
 
-  return [
-    '💬 У тебя новое сообщение!',
-    '',
-    textLine,
-    '',
-    `${formatAnonId(record.anon_id)} ↩️ Свайпни для ответа.`,
-  ].join('\n');
+  if (record.text) {
+    lines.push('', `«${record.text}»`);
+  }
+
+  lines.push('', `${formatAnonId(record.anon_id)} ↩️ Свайпни для ответа.`);
+  return lines.join('\n');
 }
 
 async function insertMessage(message, targetUserId) {
@@ -540,7 +539,7 @@ async function handleProfileCommand(message) {
 async function handleStartCommand(message) {
   const targetUserId = getDeepLinkTargetId(message.text || '');
 
-  if (targetUserId && message.from.id !== TELEGRAM_ADMIN_ID) {
+  if (targetUserId) {
     await upsertSession(message.from.id, targetUserId);
     await safeTelegramRequest(
       'sendMessage',
@@ -640,16 +639,7 @@ async function handleMessage(message) {
   const targetChatId = Number(session.target_user_id);
   const kind = getMessageKind(message);
 
-  if (kind === 'text') {
-    await safeTelegramRequest(
-      'sendMessage',
-      {
-        chat_id: targetChatId,
-        text: buildRecipientText(record),
-      },
-      'Failed to forward text'
-    );
-  } else {
+  if (kind !== 'text') {
     await safeTelegramRequest(
       'copyMessage',
       {
@@ -659,26 +649,20 @@ async function handleMessage(message) {
       },
       'Failed to copy media'
     );
+  }
 
-    if (record.text) {
-      await safeTelegramRequest(
-        'sendMessage',
-        {
-          chat_id: targetChatId,
-          text: `💬 У тебя новое сообщение!\n\n«${record.text}»\n\n${formatAnonId(record.anon_id)} ↩️ Свайпни для ответа.`,
-        },
-        'Failed to forward media caption'
-      );
-    } else {
-      await safeTelegramRequest(
-        'sendMessage',
-        {
-          chat_id: targetChatId,
-          text: `💬 У тебя новое сообщение!\n\n${formatAnonId(record.anon_id)} ↩️ Свайпни для ответа.`,
-        },
-        'Failed to forward media notice'
-      );
-    }
+  const text = buildRecipientText(record);
+  const sent = await safeTelegramRequest(
+    'sendMessage',
+    {
+      chat_id: targetChatId,
+      text,
+    },
+    'Failed to forward text'
+  );
+
+  if (sent?.message_id) {
+    await updateAdminMessageId(record.anon_id, sent.message_id);
   }
 
   await safeTelegramRequest(
