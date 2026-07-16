@@ -760,10 +760,3 @@ module.exports = async (req, res) => {
     return json(res, 500, { ok: false, error: error.message || 'Internal Server Error' });
   }
 };
-// Внутри вашей функции обработки webhook.js:
-if (!req.body || Object.keys(req.body).length === 0) {
-  // Здесь можно сделать любой микро-запрос к Supabase, чтобы «разбудить» базу
-  // Например: const { data } = await supabase.from('ваша_таблица').select('id').limit(1);
-  
-  return res.status(200).send('Keep-alive ping successful');
-}
