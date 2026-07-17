@@ -2,11 +2,11 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || '';
 const TELEGRAM_ADMIN_ID = Number(process.env.TELEGRAM_ADMIN_ID || 0);
 const TELEGRAM_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
-const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID || '';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || 'anonymous_messages';
 const SUPABASE_SESSIONS_TABLE = process.env.SUPABASE_SESSIONS_TABLE || 'anon_sessions';
+const SUPABASE_CHANNELS_TABLE = process.env.SUPABASE_CHANNELS_TABLE || 'channel_settings';
 const MAX_STORED_MESSAGES = Number(process.env.MAX_STORED_MESSAGES || 1000);
 const ADMIN_HANDLE = '@mandlail';
 
@@ -135,6 +135,25 @@ function getDeepLinkTargetId(text = '') {
   return Number.isFinite(targetId) ? targetId : 0;
 }
 
+function buildMainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: '📝 Получить свою ссылку',
+          callback_data: 'get_profile_link',
+        },
+      ],
+      [
+        {
+          text: '⚙️ Мои каналы',
+          callback_data: 'my_channels',
+        },
+      ],
+    ],
+  };
+}
+
 function buildAdminText(record) {
   const username = record.username ? `@${record.username}` : 'нет username';
   const textLine = record.text ? `Текст: ${record.text}` : 'Текст: [не текстовое сообщение]';
@@ -215,8 +234,8 @@ function buildRecipientText(record) {
   return lines.join('\n');
 }
 
-function buildChannelText(record) {
-  const lines = ['💬 Анонимное сообщение'];
+function buildChannelText(record, customText = '') {
+  const lines = customText ? [customText] : ['💬 Анонимное сообщение'];
 
   if (record.text) {
     lines.push('', `«${record.text}»`);
@@ -384,6 +403,65 @@ async function deleteSessionByChatId(chatId) {
   });
 }
 
+async function saveChannelSettings(adminId, channelId, channelName, inviteText = '') {
+  const payload = {
+    admin_id: adminId,
+    channel_id: channelId,
+    channel_name: channelName,
+    invite_text: inviteText,
+    updated_at: new Date().toISOString(),
+  };
+
+  await supabaseRequest(
+    `${SUPABASE_CHANNELS_TABLE}?on_conflict=admin_id,channel_id`,
+    {
+      method: 'POST',
+      headers: {
+        Prefer: 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+async function getAdminChannels(adminId) {
+  const { body } = await supabaseRequest(
+    `${SUPABASE_CHANNELS_TABLE}?admin_id=eq.${adminId}&select=*`,
+    {
+      method: 'GET',
+      headers: {
+        Prefer: 'return=representation',
+      },
+    }
+  );
+
+  return Array.isArray(body) ? body : [];
+}
+
+async function getChannelSettings(adminId, channelId) {
+  const { body } = await supabaseRequest(
+    `${SUPABASE_CHANNELS_TABLE}?admin_id=eq.${adminId}&channel_id=eq.${channelId}&select=*`,
+    {
+      method: 'GET',
+      headers: {
+        Prefer: 'return=representation',
+      },
+    }
+  );
+
+  return Array.isArray(body) && body.length ? body[0] : null;
+}
+
+async function updateChannelInviteText(adminId, channelId, inviteText) {
+  await supabaseRequest(
+    `${SUPABASE_CHANNELS_TABLE}?admin_id=eq.${adminId}&channel_id=eq.${channelId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ invite_text: inviteText }),
+    }
+  );
+}
+
 async function sendToAdmin(record) {
   const sent = await safeTelegramRequest(
     'sendMessage',
@@ -398,13 +476,13 @@ async function sendToAdmin(record) {
               callback_data: `reply:${record.anon_id}`,
             },
           ],
-          TELEGRAM_CHANNEL_ID ? [
+          [
             {
               text: 'Опубликовать в канал',
               callback_data: `publish:${record.anon_id}`,
             },
-          ] : [],
-        ].filter(row => row.length > 0),
+          ],
+        ],
       },
     },
     'Failed to send admin notification'
@@ -436,15 +514,15 @@ async function sendToRecipient(record) {
   }
 }
 
-async function publishToChannel(record) {
-  if (!TELEGRAM_CHANNEL_ID) {
+async function publishToChannel(record, channelId, customText = '') {
+  if (!channelId) {
     return { ok: false, error: 'Channel not configured' };
   }
 
   try {
     const result = await telegramRequest('sendMessage', {
-      chat_id: TELEGRAM_CHANNEL_ID,
-      text: buildChannelText(record),
+      chat_id: channelId,
+      text: buildChannelText(record, customText),
     });
 
     if (result?.message_id) {
@@ -587,21 +665,6 @@ async function handleAdminCommand(message) {
   );
 }
 
-async function handleProfileCommand(message) {
-  const text = buildInviteText(message.from.id);
-  const reply_markup = buildInviteKeyboard(message.from.id);
-
-  await safeTelegramRequest(
-    'sendMessage',
-    {
-      chat_id: message.chat.id,
-      text,
-      reply_markup,
-    },
-    'Failed to send profile link'
-  );
-}
-
 async function handleStartCommand(message) {
   const targetUserId = getDeepLinkTargetId(message.text || '');
 
@@ -638,11 +701,6 @@ async function handleStartCommand(message) {
 }
 
 async function handleMessage(message) {
-  if (typeof message.text === "string" && message.text.startsWith("/profile")) {
-    await handleProfileCommand(message);
-    return;
-  }
-
   if (typeof message.text === "string" && message.text.startsWith("/start")) {
     await handleStartCommand(message);
     return;
@@ -691,17 +749,14 @@ async function handleMessage(message) {
 
   const session = await findSessionByChatId(message.from.id);
   if (!session?.target_user_id) {
-    const text = buildInviteText(message.from.id);
-    const reply_markup = buildInviteKeyboard(message.from.id);
-
     await safeTelegramRequest(
       'sendMessage',
       {
         chat_id: message.chat.id,
-        text,
-        reply_markup,
+        text: 'Привет! 👋\n\nЯ помогу тебе отправлять анонимные сообщения.',
+        reply_markup: buildMainMenuKeyboard(),
       },
-      'Failed to send invite'
+      'Failed to send main menu'
     );
     return;
   }
@@ -740,7 +795,7 @@ async function handleMessage(message) {
     } catch (_) {}
   }
 
-  // ✅ Очищаем сессию по��ле отправки первого сообщения
+  // ✅ Очищаем сессию после отправки первого сообщения
   await deleteSessionByChatId(message.from.id);
 
   await safeTelegramRequest(
@@ -753,22 +808,225 @@ async function handleMessage(message) {
   );
 }
 
+async function handleChatMemberUpdate(chatMember) {
+  // Если бота добавили в чат/канал
+  if (chatMember.new_chat_member.status === 'member' || 
+      chatMember.new_chat_member.status === 'administrator') {
+    const chatId = chatMember.chat.id;
+    const chatType = chatMember.chat.type;
+    const chatTitle = chatMember.chat.title || 'канал';
+
+    // Сохраняем канал для админа
+    if (chatType === 'channel' || chatType === 'supergroup' || chatType === 'group') {
+      await saveChannelSettings(TELEGRAM_ADMIN_ID, chatId, chatTitle, '');
+
+      // Уведомляем админа
+      await safeTelegramRequest(
+        'sendMessage',
+        {
+          chat_id: TELEGRAM_ADMIN_ID,
+          text: `✅ Бот добавлен в "${chatTitle}"\n\nТеперь ты можешь настроить текст приглашения для подписчиков.`,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⚙️ Настроить',
+                  callback_data: `edit_channel:${chatId}`,
+                },
+              ],
+            ],
+          },
+        },
+        'Failed to notify admin'
+      );
+    }
+  }
+}
+
 async function handleCallback(callbackQuery) {
   if (!callbackQuery.data) return;
 
-  if (callbackQuery.data.startsWith('reply:')) {
+  // Получить ссылку профиля
+  if (callbackQuery.data === 'get_profile_link') {
+    const text = buildInviteText(callbackQuery.from.id);
+    const reply_markup = buildInviteKeyboard(callbackQuery.from.id);
+
+    await safeTelegramRequest(
+      'editMessageText',
+      {
+        chat_id: callbackQuery.message.chat.id,
+        message_id: callbackQuery.message.message_id,
+        text,
+        reply_markup,
+      },
+      'Failed to edit message'
+    );
+
     await safeTelegramRequest(
       'answerCallbackQuery',
       {
         callback_query_id: callbackQuery.id,
-        text: 'Ответь на сообщение бота текстом, чтобы отправить его пользователю.',
+        text: 'Вот твоя ссылка! 📋',
       },
-      'Failed to answer callback query'
+      'Failed to answer callback'
     );
     return;
   }
 
-  // ✅ Новая функция: публикация в канал
+  // Мои каналы (для админа)
+  if (callbackQuery.data === 'my_channels') {
+    if (callbackQuery.from.id !== TELEGRAM_ADMIN_ID) {
+      await safeTelegramRequest(
+        'answerCallbackQuery',
+        {
+          callback_query_id: callbackQuery.id,
+          text: 'Это доступно только администратору',
+          show_alert: true,
+        },
+        'Failed to answer unauthorized'
+      );
+      return;
+    }
+
+    const channels = await getAdminChannels(TELEGRAM_ADMIN_ID);
+
+    if (!channels.length) {
+      await safeTelegramRequest(
+        'editMessageText',
+        {
+          chat_id: callbackQuery.message.chat.id,
+          message_id: callbackQuery.message.message_id,
+          text: '❌ У тебя нет добавленных каналов.\n\nДобавь бота администратором в свой канал/группу.',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '← Назад',
+                  callback_data: 'back_to_menu',
+                },
+              ],
+            ],
+          },
+        },
+        'Failed to edit message'
+      );
+    } else {
+      const keyboard = {
+        inline_keyboard: [
+          ...channels.map((ch) => [
+            {
+              text: `📺 ${ch.channel_name}`,
+              callback_data: `edit_channel:${ch.channel_id}`,
+            },
+          ]),
+          [
+            {
+              text: '← Назад',
+              callback_data: 'back_to_menu',
+            },
+          ],
+        ],
+      };
+
+      await safeTelegramRequest(
+        'editMessageText',
+        {
+          chat_id: callbackQuery.message.chat.id,
+          message_id: callbackQuery.message.message_id,
+          text: '📺 Твои каналы:\n\nВыбери канал для редактирования',
+          reply_markup: keyboard,
+        },
+        'Failed to edit message'
+      );
+    }
+
+    await safeTelegramRequest(
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQuery.id,
+      },
+      'Failed to answer callback'
+    );
+    return;
+  }
+
+  // Назад в меню
+  if (callbackQuery.data === 'back_to_menu') {
+    await safeTelegramRequest(
+      'editMessageText',
+      {
+        chat_id: callbackQuery.message.chat.id,
+        message_id: callbackQuery.message.message_id,
+        text: 'Привет! 👋\n\nЯ помогу тебе отправлять анонимные сообщения.',
+        reply_markup: buildMainMenuKeyboard(),
+      },
+      'Failed to edit message'
+    );
+
+    await safeTelegramRequest(
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQuery.id,
+      },
+      'Failed to answer callback'
+    );
+    return;
+  }
+
+  // Редактировать канал
+  if (callbackQuery.data.startsWith('edit_channel:')) {
+    const channelId = Number(callbackQuery.data.split(':')[1]);
+    const settings = await getChannelSettings(TELEGRAM_ADMIN_ID, channelId);
+
+    if (!settings) {
+      await safeTelegramRequest(
+        'answerCallbackQuery',
+        {
+          callback_query_id: callbackQuery.id,
+          text: 'Канал не найден',
+          show_alert: true,
+        },
+        'Failed to answer'
+      );
+      return;
+    }
+
+    const currentText = settings.invite_text || '(текст не установлен)';
+
+    await safeTelegramRequest(
+      'editMessageText',
+      {
+        chat_id: callbackQuery.message.chat.id,
+        message_id: callbackQuery.message.message_id,
+        text: `📺 ${settings.channel_name}\n\n📝 Текущий текст приглашения:\n\n${currentText}\n\nОтправь новый текст приглашения для подписчиков канала.`,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '← Назад',
+                callback_data: 'my_channels',
+              },
+            ],
+          ],
+        },
+      },
+      'Failed to edit message'
+    );
+
+    // Сохраняем, что ждём текст для этого канала
+    await upsertSession(callbackQuery.from.id, -channelId); // отрицательное число чтобы различить
+
+    await safeTelegramRequest(
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQuery.id,
+      },
+      'Failed to answer callback'
+    );
+    return;
+  }
+
+  // Опубликовать в канал
   if (callbackQuery.data.startsWith('publish:')) {
     const anonId = Number(callbackQuery.data.split(':')[1]);
     const record = await findMessageByAnonId(anonId);
@@ -786,28 +1044,144 @@ async function handleCallback(callbackQuery) {
       return;
     }
 
-    const publishResult = await publishToChannel(record);
+    const channels = await getAdminChannels(TELEGRAM_ADMIN_ID);
+
+    if (!channels.length) {
+      await safeTelegramRequest(
+        'answerCallbackQuery',
+        {
+          callback_query_id: callbackQuery.id,
+          text: 'Нет добавленных каналов. Добавь бота в канал.',
+          show_alert: true,
+        },
+        'Failed to answer'
+      );
+      return;
+    }
+
+    const keyboard = {
+      inline_keyboard: [
+        ...channels.map((ch) => [
+          {
+            text: `📺 ${ch.channel_name}`,
+            callback_data: `publish_to:${anonId}:${ch.channel_id}`,
+          },
+        ]),
+        [
+          {
+            text: '❌ Отмена',
+            callback_data: `back_to_admin`,
+          },
+        ],
+      ],
+    };
+
+    await safeTelegramRequest(
+      'editMessageText',
+      {
+        chat_id: callbackQuery.message.chat.id,
+        message_id: callbackQuery.message.message_id,
+        text: '📺 Выбери канал для ��убликации:',
+        reply_markup: keyboard,
+      },
+      'Failed to edit message'
+    );
+
+    await safeTelegramRequest(
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQuery.id,
+      },
+      'Failed to answer callback'
+    );
+    return;
+  }
+
+  // Опубликовать сообщение в выбранный канал
+  if (callbackQuery.data.startsWith('publish_to:')) {
+    const parts = callbackQuery.data.split(':');
+    const anonId = Number(parts[1]);
+    const channelId = Number(parts[2]);
+
+    const record = await findMessageByAnonId(anonId);
+    const settings = await getChannelSettings(TELEGRAM_ADMIN_ID, channelId);
+
+    if (!record || !settings) {
+      await safeTelegramRequest(
+        'answerCallbackQuery',
+        {
+          callback_query_id: callbackQuery.id,
+          text: 'Ошибка: данные не найдены',
+          show_alert: true,
+        },
+        'Failed to answer'
+      );
+      return;
+    }
+
+    const publishResult = await publishToChannel(record, channelId, settings.invite_text);
 
     if (publishResult.ok) {
       await safeTelegramRequest(
-        'answerCallbackQuery',
+        'editMessageText',
         {
-          callback_query_id: callbackQuery.id,
-          text: 'Опубликовано в канал! ✅',
+          chat_id: callbackQuery.message.chat.id,
+          message_id: callbackQuery.message.message_id,
+          text: `✅ Сообщение опубликовано в "${settings.channel_name}"!`,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '← Назад',
+                  callback_data: 'back_to_admin',
+                },
+              ],
+            ],
+          },
         },
-        'Failed to answer publish success'
+        'Failed to edit message'
       );
     } else {
       await safeTelegramRequest(
-        'answerCallbackQuery',
+        'editMessageText',
         {
-          callback_query_id: callbackQuery.id,
-          text: `Ошибка: ${publishResult.error}`,
-          show_alert: true,
+          chat_id: callbackQuery.message.chat.id,
+          message_id: callbackQuery.message.message_id,
+          text: `❌ Ошибка: ${publishResult.error}`,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '← Назад',
+                  callback_data: 'back_to_admin',
+                },
+              ],
+            ],
+          },
         },
-        'Failed to answer publish error'
+        'Failed to edit message'
       );
     }
+
+    await safeTelegramRequest(
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQuery.id,
+      },
+      'Failed to answer callback'
+    );
+    return;
+  }
+
+  // Вернуться к админ-меню
+  if (callbackQuery.data === 'back_to_admin') {
+    await safeTelegramRequest(
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQuery.id,
+      },
+      'Failed to answer callback'
+    );
     return;
   }
 
@@ -851,6 +1225,8 @@ module.exports = async (req, res) => {
       await handleMessage(update.message);
     } else if (update.callback_query) {
       await handleCallback(update.callback_query);
+    } else if (update.my_chat_member) {
+      await handleChatMemberUpdate(update.my_chat_member);
     }
 
     return json(res, 200, { ok: true });
