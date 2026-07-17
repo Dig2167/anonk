@@ -2,6 +2,7 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || '';
 const TELEGRAM_ADMIN_ID = Number(process.env.TELEGRAM_ADMIN_ID || 0);
 const TELEGRAM_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
+const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID || '';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || 'anonymous_messages';
@@ -214,6 +215,17 @@ function buildRecipientText(record) {
   return lines.join('\n');
 }
 
+function buildChannelText(record) {
+  const lines = ['💬 Анонимное сообщение'];
+
+  if (record.text) {
+    lines.push('', `«${record.text}»`);
+  }
+
+  lines.push('', `${formatAnonId(record.anon_id)}`);
+  return lines.join('\n');
+}
+
 async function insertMessage(message, targetUserId) {
   const payload = {
     telegram_message_id: message.message_id,
@@ -242,6 +254,13 @@ async function updateAdminMessageId(anonId, adminMessageId) {
   await supabaseRequest(`${SUPABASE_TABLE}?anon_id=eq.${anonId}`, {
     method: 'PATCH',
     body: JSON.stringify({ admin_message_id: adminMessageId }),
+  });
+}
+
+async function updateChannelMessageId(anonId, channelMessageId) {
+  await supabaseRequest(`${SUPABASE_TABLE}?anon_id=eq.${anonId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ channel_message_id: channelMessageId }),
   });
 }
 
@@ -359,6 +378,12 @@ async function findSessionByChatId(chatId) {
   return Array.isArray(body) ? body[0] || null : body || null;
 }
 
+async function deleteSessionByChatId(chatId) {
+  await supabaseRequest(`${SUPABASE_SESSIONS_TABLE}?chat_id=eq.${chatId}`, {
+    method: 'DELETE',
+  });
+}
+
 async function sendToAdmin(record) {
   const sent = await safeTelegramRequest(
     'sendMessage',
@@ -373,7 +398,13 @@ async function sendToAdmin(record) {
               callback_data: `reply:${record.anon_id}`,
             },
           ],
-        ],
+          TELEGRAM_CHANNEL_ID ? [
+            {
+              text: 'Опубликовать в канал',
+              callback_data: `publish:${record.anon_id}`,
+            },
+          ] : [],
+        ].filter(row => row.length > 0),
       },
     },
     'Failed to send admin notification'
@@ -402,6 +433,28 @@ async function sendToRecipient(record) {
   } catch (error) {
     console.error('Failed to forward anonymous message to recipient', error);
     return { ok: false, error: error.message || 'Failed to forward anonymous message to recipient' };
+  }
+}
+
+async function publishToChannel(record) {
+  if (!TELEGRAM_CHANNEL_ID) {
+    return { ok: false, error: 'Channel not configured' };
+  }
+
+  try {
+    const result = await telegramRequest('sendMessage', {
+      chat_id: TELEGRAM_CHANNEL_ID,
+      text: buildChannelText(record),
+    });
+
+    if (result?.message_id) {
+      await updateChannelMessageId(record.anon_id, result.message_id);
+    }
+
+    return { ok: true, result };
+  } catch (error) {
+    console.error('Failed to publish to channel', error);
+    return { ok: false, error: error.message || 'Failed to publish to channel' };
   }
 }
 
@@ -687,6 +740,9 @@ async function handleMessage(message) {
     } catch (_) {}
   }
 
+  // ✅ Очищаем сессию по��ле отправки первого сообщения
+  await deleteSessionByChatId(message.from.id);
+
   await safeTelegramRequest(
     'sendMessage',
     {
@@ -709,6 +765,49 @@ async function handleCallback(callbackQuery) {
       },
       'Failed to answer callback query'
     );
+    return;
+  }
+
+  // ✅ Новая функция: публикация в канал
+  if (callbackQuery.data.startsWith('publish:')) {
+    const anonId = Number(callbackQuery.data.split(':')[1]);
+    const record = await findMessageByAnonId(anonId);
+
+    if (!record) {
+      await safeTelegramRequest(
+        'answerCallbackQuery',
+        {
+          callback_query_id: callbackQuery.id,
+          text: 'Сообщение не найдено.',
+          show_alert: true,
+        },
+        'Failed to answer publish callback'
+      );
+      return;
+    }
+
+    const publishResult = await publishToChannel(record);
+
+    if (publishResult.ok) {
+      await safeTelegramRequest(
+        'answerCallbackQuery',
+        {
+          callback_query_id: callbackQuery.id,
+          text: 'Опубликовано в канал! ✅',
+        },
+        'Failed to answer publish success'
+      );
+    } else {
+      await safeTelegramRequest(
+        'answerCallbackQuery',
+        {
+          callback_query_id: callbackQuery.id,
+          text: `Ошибка: ${publishResult.error}`,
+          show_alert: true,
+        },
+        'Failed to answer publish error'
+      );
+    }
     return;
   }
 
