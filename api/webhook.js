@@ -136,12 +136,16 @@ function getDeepLinkTargetId(text = '') {
 }
 
 function buildMainMenuKeyboard() {
-  return {
+  return { 'Делитесь этой ссылкой, чтобы получать анонимные сообщения:',
+    '',
+    link,
+  ].join('\n');
+}
     inline_keyboard: [
       [
         {
-          text: '📝 Получить свою ссылку',
-          callback_data: 'get_profile_link',
+          text: 'Скопировать ссылку',
+          copy_text: { text: link },
         },
       ],
       [
@@ -217,6 +221,12 @@ function buildInviteKeyboard(userId) {
         {
           text: 'Скопировать ссылку',
           copy_text: { text: link },
+        },
+      ],
+      [
+        {
+          text: '⚙️ Мои каналы',
+          callback_data: 'my_channels',
         },
       ],
     ],
