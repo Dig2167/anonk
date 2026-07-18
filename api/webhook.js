@@ -212,45 +212,6 @@ function buildLookupText(record) {
   ].join('\n');
 }
 
-function buildInviteText(userId) {
-  if (!TELEGRAM_BOT_USERNAME) {
-    return 'Задай TELEGRAM_BOT_USERNAME в Vercel.';
-  }
-
-  const link = `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`;
-
-  return [
-    'Делитесь этой ссылкой, чтобы получать анонимные сообщения:',
-    '',
-    link,
-  ].join('\n');
-}
-
-function buildInviteKeyboard(userId) {
-  if (!TELEGRAM_BOT_USERNAME) {
-    return undefined;
-  }
-
-  const link = `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`;
-
-  return {
-    inline_keyboard: [
-      [
-        {
-          text: 'Скопировать ссылку',
-          copy_text: { text: link },
-        },
-      ],
-      [
-        {
-          text: '⚙️ Мои каналы',
-          callback_data: 'my_channels',
-        },
-      ],
-    ],
-  };
-}
-
 function buildRecipientText(record) {
   const lines = ['💬 У тебя новое сообщение!'];
 
