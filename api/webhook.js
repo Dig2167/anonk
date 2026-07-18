@@ -135,12 +135,30 @@ function getDeepLinkTargetId(text = '') {
   return Number.isFinite(targetId) ? targetId : 0;
 }
 
-function buildMainMenuKeyboard() {
-  return { 'Делитесь этой ссылкой, чтобы получать анонимные сообщения:',
+// 1. ФУНКЦИЯ ДЛЯ СОЗДАНИЯ ТОЛЬКО ТЕКСТА С ССЫЛКОЙ
+function buildInviteText(userId) {
+  if (!TELEGRAM_BOT_USERNAME) {
+    return 'Задай TELEGRAM_BOT_USERNAME в Vercel.';
+  }
+
+  const link = `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`;
+
+  return [
+    'Делитесь этой ссылкой, чтобы получать анонимные сообщения:',
     '',
     link,
   ].join('\n');
 }
+
+// 2. ФУНКЦИЯ ДЛЯ СОЗДАНИЯ ТОЛЬКО КНОПКИ КОПИРОВАНИЯ
+function buildInviteKeyboard(userId) {
+  if (!TELEGRAM_BOT_USERNAME) {
+    return undefined;
+  }
+
+  const link = `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`;
+
+  return {
     inline_keyboard: [
       [
         {
