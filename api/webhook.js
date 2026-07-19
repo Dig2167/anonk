@@ -950,7 +950,7 @@ async function handleCallback(callbackQuery) {
         chat_id: callbackQuery.message.chat.id,
         message_id: callbackQuery.message.message_id,
         text: 'Привет! 👋\n\nЯ помогу тебе отправлять анонимные сообщения.',
-        reply_markup: buildMainMenuKeyboard(),
+        reply_markup: buildInviteKeyboard(userId),
       },
       'Failed to edit message'
     );
