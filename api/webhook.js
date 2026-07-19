@@ -745,8 +745,8 @@ async function handleMessage(message) {
       'sendMessage',
       {
         chat_id: message.chat.id,
-        text: 'Привет! 👋\n\nЯ помогу тебе отправлять анонимные сообщения.',
-        reply_markup: buildInviteKeyboard(),
+        text: 'Делитесь этой ссылкой, чтобы получать анонимные сообщения:\n\n ${link}',
+        reply_markup: buildInviteKeyboard(userId),
       },
       'Failed to send main menu'
     );
@@ -1073,7 +1073,7 @@ async function handleCallback(callbackQuery) {
       {
         chat_id: callbackQuery.message.chat.id,
         message_id: callbackQuery.message.message_id,
-        text: '📺 Выбери канал для ��убликации:',
+        text: '📺 Выбери канал для Публикации:',
         reply_markup: keyboard,
       },
       'Failed to edit message'
