@@ -159,6 +159,9 @@ function buildInviteKeyboard(userId) {
   const link = `t.me/${TELEGRAM_BOT_USERNAME}?start=u_${userId}`;
 
   return {
+    
+     text: `Делитесь этой ссылкой, чтобы получать анонимные сообщения:\n\n${link}`,
+    
     inline_keyboard: [
       [
         {
