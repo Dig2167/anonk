@@ -743,7 +743,7 @@ async function handleMessage(message) {
       {
         chat_id: message.chat.id,
         text: 'Привет! 👋\n\nЯ помогу тебе отправлять анонимные сообщения.',
-        reply_markup: buildMainMenuKeyboard(),
+        reply_markup: buildInviteKeyboard(),
       },
       'Failed to send main menu'
     );
